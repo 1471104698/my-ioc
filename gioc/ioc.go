@@ -14,9 +14,11 @@ func NewIOC() *IOC {
 }
 
 // Register 调用 bean 工厂 注册一个 bean
-func (ioc *IOC) Register(i interface{}) {}
+func (ioc *IOC) Register(beanName string, i interface{}, beanType BeanType) error {
+	return ioc.beanFactory.Register(beanName, i, beanType)
+}
 
 // GetBean 调用 bean 工厂 获取 bean
 func (ioc *IOC) GetBean(beanName string) interface{} {
-	return nil
+	return ioc.beanFactory.GetBean(beanName)
 }

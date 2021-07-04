@@ -19,7 +19,7 @@ func NewSingletonContainer(beanFactory BeanFactory) *SingletonContainer {
 	}
 }
 
-// Get
+// Get 获取 bean
 func (sc *SingletonContainer) Get(beanName string) interface{} {
 	// 先从缓存中获取
 	bean := sc.getSingleton(beanName)
@@ -27,8 +27,13 @@ func (sc *SingletonContainer) Get(beanName string) interface{} {
 		return bean
 	}
 	// 创建实例
-	// ...
-	return nil
+	bean = sc.createBean(beanName)
+	if bean == nil {
+		return nil
+	}
+	// 将 bean 添加到缓存中
+	sc.addSingleton(beanName, bean)
+	return bean
 }
 
 // PrototypeContainer 原型 bean 容器
@@ -44,7 +49,13 @@ func NewPrototypeContainer(beanFactory BeanFactory) *PrototypeContainer {
 	}
 }
 
-// Get
+// Get 获取 bean
 func (pc *PrototypeContainer) Get(beanName string) interface{} {
-	return nil
+	// 获取对应的数据类型
+	// 创建实例
+	bean := pc.createBean(beanName)
+	if bean == nil {
+		return nil
+	}
+	return bean
 }
