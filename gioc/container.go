@@ -1,52 +1,48 @@
 package gioc
 
-import "reflect"
-
 // Container bean 容器接口
 type Container interface {
-	// Add 添加 bean，如果已经存在，那么不重复添加
-	Add(i interface{})
 	// Get 根据 beanName 获取 bean
 	Get(beanName string) interface{}
 }
 
-// container 存储 bean 类型信息
-type container map[string]reflect.Type
-
 // SingletonContainer 单例 bean 容器
 type SingletonContainer struct {
-	// 存储 bean 类型信息
-	c container
-	// 存储 bean 实例
-	beans map[string]interface{}
+	// 维护 beanFactory
+	BeanFactory
 }
 
 // NewSingletonContainer 实例化一个单例 bean 容器
-func NewSingletonContainer() *SingletonContainer {
+func NewSingletonContainer(beanFactory BeanFactory) *SingletonContainer {
 	return &SingletonContainer{
-		c:     container{},
-		beans: map[string]interface{}{},
+		BeanFactory: beanFactory,
 	}
 }
 
-// Add
-func (sc *SingletonContainer) Add(i interface{}) {}
-
 // Get
 func (sc *SingletonContainer) Get(beanName string) interface{} {
+	// 先从缓存中获取
+	bean := sc.getSingleton(beanName)
+	if bean != nil {
+		return bean
+	}
+	// 创建实例
+	// ...
 	return nil
 }
 
 // PrototypeContainer 原型 bean 容器
-type PrototypeContainer container
-
-// NewPrototypeContainer 实例化一个原型 bean 容器
-func NewPrototypeContainer() *PrototypeContainer {
-	return &PrototypeContainer{}
+type PrototypeContainer struct {
+	// 维护 beanFactory
+	BeanFactory
 }
 
-// Add
-func (pc *PrototypeContainer) Add(i interface{}) {}
+// NewPrototypeContainer 实例化一个原型 bean 容器
+func NewPrototypeContainer(beanFactory BeanFactory) *PrototypeContainer {
+	return &PrototypeContainer{
+		BeanFactory: beanFactory,
+	}
+}
 
 // Get
 func (pc *PrototypeContainer) Get(beanName string) interface{} {
