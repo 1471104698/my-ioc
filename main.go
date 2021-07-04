@@ -6,7 +6,7 @@ import (
 )
 
 type A struct {
-	B B `di:"s"`
+	B B `di:"s" beanName:"bbbb"`
 }
 
 type B struct {

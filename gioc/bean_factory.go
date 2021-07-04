@@ -69,7 +69,7 @@ func (bc *BeanBeanFactory) Register(beanName string, i interface{}, beanType Bea
 		return fmt.Errorf("beanType: %v 不符合要求\n", beanType)
 	}
 	// 判断 beanName 是否已经注册过了，因为 beanName 是唯一标识，所以不能重复
-	if _, exist := bc.btMap[beanName]; exist {
+	if bc.isRegistered(beanName) {
 		return fmt.Errorf("beanName was registered by other bean")
 	}
 	var t reflect.Type
@@ -119,19 +119,22 @@ func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
 	}
 	// 创建实例
 	beanPtr := reflect.New(t)
+	// 非 ptr bean value
 	bean := beanPtr.Elem()
 
 	// 扫描所有的 field
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
+		// field 的 reflect.Type 类型信息
 		ftPtr := field.Type
+		// field 的 非 ptr type
 		var ft reflect.Type
 		if ftPtr.Kind() == reflect.Ptr {
 			ft = ftPtr.Elem()
 		} else {
 			ft = ftPtr
 		}
-		// 非 bean 返回
+		// 非 bean，那么直接跳过
 		if !isBean(ft) {
 			continue
 		}
@@ -150,17 +153,22 @@ func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
 			// 不存在，那么使用 t.Name() 作为 beanName
 			if fieldBeanName == "" {
 				fieldBeanName = ft.Name()
-				// 注册到 beanFactory 中
-				_ = bc.Register(fieldBeanName, ftPtr, autowireType)
 			}
+		}
+		// 判断是否需要注册到 beanFactory 中
+		if !bc.isRegistered(fieldBeanName) {
+			// 注册到 beanFactory 中
+			_ = bc.Register(fieldBeanName, ftPtr, autowireType)
 		}
 		// 调用 GetBean() 获取 field bean，走 container 的逻辑
 		fieldBean := bc.GetBean(fieldBeanName)
+		// 获取不到 bean，那么跳过
 		if fieldBean == nil {
 			continue
 		}
+		// 将 bean 封装为 reflect.Value，用于 set()
 		fieldBeanValue := reflect.ValueOf(fieldBean)
-		// 将 field bean 设置到 bean 中
+		// 将 field bean 赋值给 bean
 		if ft == ftPtr {
 			// field 非 ptr，那么直接设置即可
 			bean.Field(i).Set(fieldBeanValue)
@@ -249,4 +257,10 @@ func getAutowireType(field reflect.StructField) BeanType {
 		return Prototype
 	}
 	return Invalid
+}
+
+// isRegistered 判断 beanName 是否已经注册
+func (bc *BeanBeanFactory) isRegistered(beanName string) bool {
+	_, exist := bc.tMap[beanName]
+	return exist
 }
