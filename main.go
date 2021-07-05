@@ -6,7 +6,8 @@ import (
 )
 
 type A struct {
-	B B `di:"s" beanName:"bbbb"`
+	//B B `di:"s" beanName:"bbbb"`
+	B *B `di:"s" beanName:"bbbb"`
 }
 
 type B struct {
@@ -19,10 +20,11 @@ type C struct {
 	i    int
 	b    bool
 	name string
+	A    *A `di:"s"`
 }
 
 func main() {
-	ioc := gioc.NewIOC()
+	ioc := gioc.NewIOC(gioc.WithAllowEarlyReference(true))
 
 	class := gioc.NewClass("a", (*A)(nil), gioc.Singleton)
 	err := ioc.Register(class)
@@ -36,8 +38,10 @@ func main() {
 	fmt.Println(bean == bean2) // true
 	// 即使 bbbb 是单例，但是由于不是 ptr 类型的，并且 golang 是值传递，所以这里返回的 bean 实际上已经不是 beanFactory 维护的那个 bean 了
 	// 所以 IOC 实际上应该处理的是 ptr bean，非 ptr bean 处理没有意义
-	bean3 := ioc.GetBean("bbbb").(B)
-	fmt.Println(&bean3 == &(bean.B)) // false
+	//bean3 := ioc.GetBean("bbbb").(B)
+	//fmt.Println(&bean3 == &(bean.B)) // false
+	bean3 := ioc.GetBean("bbbb").(*B)
+	fmt.Println(bean3 == bean.B) // true
 
 	// C 是原型的，所以不会存储，所以这里会创建一个新的 C，因此跟单例 bean B 中的 C 不一样，输出 false
 	// 如果将 C 改成 di:"s"，那么这里输出 true

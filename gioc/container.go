@@ -27,7 +27,7 @@ func (sc *SingletonContainer) Get(beanName string) interface{} {
 		return bean
 	}
 	// 创建实例
-	bean = sc.createBean(beanName)
+	bean = sc.createBean(beanName, Singleton)
 	if bean == nil {
 		return nil
 	}
@@ -52,7 +52,7 @@ func NewPrototypeContainer(beanFactory BeanFactory) Container {
 // Get 获取 bean
 func (pc *PrototypeContainer) Get(beanName string) interface{} {
 	// 创建实例
-	bean := pc.createBean(beanName)
+	bean := pc.createBean(beanName, Prototype)
 	if bean == nil {
 		return nil
 	}

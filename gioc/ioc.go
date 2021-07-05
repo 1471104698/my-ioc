@@ -23,9 +23,9 @@ type IOC struct {
 }
 
 // NewIOC 实例化一个 IOC
-func NewIOC() *IOC {
+func NewIOC(opts ...Option) *IOC {
 	return &IOC{
-		beanFactory: NewBeanFactory(),
+		beanFactory: NewBeanFactory(opts...),
 	}
 }
 

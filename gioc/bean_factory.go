@@ -26,7 +26,7 @@ type BeanFactory interface {
 	// getSingleton 获取单例 bean（这里以后学习 Spring 建立三级缓存解决循环依赖）
 	getSingleton(beanName string) interface{}
 	// createBean 创建 bean 实例
-	createBean(beanName string) interface{}
+	createBean(beanName string, beanType BeanType) interface{}
 	// addSingleton 添加单例 bean
 	addSingleton(beanName string, i interface{})
 }
@@ -47,10 +47,12 @@ type BeanBeanFactory struct {
 	btMap map[string]BeanType
 	// 维护所有注册 bean 的类型信息
 	tMap map[string]reflect.Type
-	// 维护所有的单例 bean
+	// 维护所有的单例 bean，一级缓存
 	singletonMap map[string]interface{}
-	// 维护早期暴露对象，用于解决循环依赖
+	// 维护早期暴露对象，用于解决循环依赖，二级缓存
 	earlyMap map[string]interface{}
+	// 工厂 map，三级缓存，用于 AOP bean
+	factoryMap map[string]func() interface{}
 	// 当前正在创建的 bean 列表
 	creatingMap map[string]interface{}
 	// 可选参数
@@ -64,6 +66,7 @@ func NewBeanFactory(opts ...Option) BeanFactory {
 		tMap:         map[string]reflect.Type{},
 		singletonMap: map[string]interface{}{},
 		earlyMap:     map[string]interface{}{},
+		factoryMap:   map[string]func() interface{}{},
 		creatingMap:  map[string]interface{}{},
 		opts:         &Options{},
 	}
@@ -102,9 +105,10 @@ func (bc *BeanBeanFactory) Register(class *Class) error {
 
 // GetBean 根据 beanName 获取 bean 实例
 func (bc *BeanBeanFactory) GetBean(beanName string) interface{} {
+	// 处理 createBean 抛出的 panic
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Printf("bean：%v is creating\n", beanName)
+			fmt.Println(err)
 		}
 	}()
 	// 获取 bean 类型
@@ -123,13 +127,10 @@ func (bc *BeanBeanFactory) GetBean(beanName string) interface{} {
 }
 
 // createBean 创建 bean 实例
-func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
-	// 判断当前 bean 是否正在创建
-	if _, exist := bc.creatingMap[beanName]; exist {
-		panic("cur bean is creating")
-	}
-	// 标识当前 bean 正在创建
-	bc.creatingMap[beanName] = struct{}{}
+func (bc *BeanBeanFactory) createBean(beanName string, beanType BeanType) interface{} {
+	// 创建 bean 前置处理
+	bc.createBefore(beanName, beanType)
+
 	// 获取 bean 类型信息
 	tPtr, exist := bc.tMap[beanName]
 	if !exist {
@@ -142,6 +143,7 @@ func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
 	} else {
 		t = tPtr
 	}
+	// 判断当前 beanName 对应的 reflect.Type 是否能够作为 bean
 	if !isBean(t) {
 		return nil
 	}
@@ -150,16 +152,16 @@ func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
 	// 非 ptr bean value
 	bean := beanPtr.Elem()
 
+	// 判断是否允许暴露早期对象
 	if bc.opts.allowEarlyReference {
 		if t == tPtr {
 			// 非 ptr bean
-			bc.earlyMap[beanName] = bean.Interface()
+			bc.addSingletonFactory(beanName, bean.Interface())
 		} else {
 			// ptr bean
-			bc.earlyMap[beanName] = beanPtr.Interface()
+			bc.addSingletonFactory(beanName, beanPtr.Interface())
 		}
 	}
-
 	// 扫描所有的 field
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
@@ -177,9 +179,9 @@ func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
 			continue
 		}
 		// 获取注入类型
-		autowireType := getAutowireType(field)
+		fieldBeanType := getFieldBeanType(field)
 		// 不存在 autowire 注解，那么当前 field 不需要注入，那么跳过2
-		if autowireType == Invalid {
+		if fieldBeanType == Invalid {
 			continue
 		}
 		// 获取 field 对应注解的 beanName
@@ -187,7 +189,7 @@ func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
 		// 判断是否需要注册到 beanFactory 中
 		if !bc.isRegistered(fieldBeanName) {
 			// 注册到 beanFactory 中
-			_ = bc.Register(NewClass(fieldBeanName, ftPtr, autowireType))
+			_ = bc.Register(NewClass(fieldBeanName, ftPtr, fieldBeanType))
 		}
 		// 调用 GetBean() 获取 field bean，走 container 的逻辑
 		fieldBean := bc.GetBean(fieldBeanName)
@@ -206,14 +208,39 @@ func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
 			bean.Field(i).Set(fieldBeanValue.Elem().Addr())
 		}
 	}
-	// 将当前 bean 从正在创建 bean 列表中移除
-	bc.creatingMap[beanName] = nil
+	// 创建 bean 后置处理
+	bc.createAfter(beanName, beanType)
+
 	// 返回非 ptr bean
 	if t == tPtr {
 		return bean.Interface()
 	}
 	// 返回 ptr bean
 	return beanPtr.Interface()
+}
+
+// createBefore
+func (bc *BeanBeanFactory) createBefore(beanName string, beanType BeanType) {
+	// 原型 bean 直接返回
+	if isPrototype(beanType) {
+		return
+	}
+	// 判断当前 bean 是否正在创建
+	if bc.creatingMap[beanName] != nil {
+		panic(fmt.Errorf("bean %v is creating", beanName))
+	}
+	// 标识当前 bean 正在创建
+	bc.creatingMap[beanName] = struct{}{}
+}
+
+// createAfter
+func (bc *BeanBeanFactory) createAfter(beanName string, beanType BeanType) {
+	// 原型 bean 直接返回
+	if isPrototype(beanType) {
+		return
+	}
+	// 将当前 bean 从正在创建 bean 列表中移除
+	bc.creatingMap[beanName] = nil
 }
 
 // isSingleton 判断是否是单例 bean
@@ -226,6 +253,25 @@ func isPrototype(beanType BeanType) bool {
 	return beanType == Prototype
 }
 
+// isRegistered 判断 beanName 是否已经注册
+func (bc *BeanBeanFactory) isRegistered(beanName string) bool {
+	_, exist := bc.tMap[beanName]
+	return exist
+}
+
+// isBean 判断是否能够作为 bean，基本数据类型等不能作为一个 bean
+func isBean(t reflect.Type) bool {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	// reflect.Interface 是 reflect.TypeOf(&i).Elem().Kind() 指针传入然后调用 Elem() 返回的类型，因为 reflect 没有具体确定它的类型
+	// 这里判断有点问题，因为 var i int 传入 &i 那么这里得到的也是 Interface，无法做更加具体的区分
+	if t.Kind() == reflect.Struct || t.Kind() == reflect.Interface {
+		return true
+	}
+	return false
+}
+
 // getSingleton 获取单例 bean（这里以后学习 Spring 建立三级缓存解决循环依赖）
 func (bc *BeanBeanFactory) getSingleton(beanName string) interface{} {
 	// 从单例池中获取
@@ -234,8 +280,57 @@ func (bc *BeanBeanFactory) getSingleton(beanName string) interface{} {
 	if bean == nil && bc.opts.allowEarlyReference {
 		// 从早期暴露对象池中获取 bean
 		bean = bc.earlyMap[beanName]
+		if bean == nil {
+			// 从三级缓存中获取
+			singletonFactory := bc.factoryMap[beanName]
+			if singletonFactory != nil {
+				bean = singletonFactory()
+				// 将 bean 放到早期对象池中，下次获取直接从早期对象池中获取
+				bc.earlyMap[beanName] = bean
+			}
+		}
 	}
 	return bean
+}
+
+// addSingleton 添加单例 bean
+func (bc *BeanBeanFactory) addSingleton(beanName string, bean interface{}) {
+	bc.earlyMap[beanName] = nil
+	bc.factoryMap[beanName] = nil
+	bc.singletonMap[beanName] = bean
+}
+
+// addSingletonFactory
+func (bc *BeanBeanFactory) addSingletonFactory(beanName string, bean interface{}) {
+	// 设置工厂方法，这里主要是进行 AOP 处理
+	bc.factoryMap[beanName] = func() interface{} {
+		return bean
+	}
+}
+
+// getBeanType 根据 beanName 获取 bean 类型
+func (bc *BeanBeanFactory) getBeanType(beanName string) BeanType {
+	beanType, exist := bc.btMap[beanName]
+	if !exist {
+		return Invalid
+	}
+	return beanType
+}
+
+// getBeanName 获取 field 注解的 beanName，作为 IOC 容器中唯一 bean 标识
+func getBeanName(field reflect.StructField) string {
+	return field.Tag.Get(BeanNameTag)
+}
+
+// getBeanNameWithReflectType 根据 reflect.Type 从已经注册的 bean 中获取对应的 beanName
+func (bc *BeanBeanFactory) getBeanNameWithReflectType(tape reflect.Type) string {
+	// 这里操作次数并不多，因此不需要特地维护一个 map，直接从原有 map 扫描获取即可，单纯的时间换空间
+	for beanName, t := range bc.tMap {
+		if t == tape {
+			return beanName
+		}
+	}
+	return ""
 }
 
 // getFieldBeanName 获取字段变量的 beanName
@@ -254,52 +349,8 @@ func getFieldBeanName(bc *BeanBeanFactory, field reflect.StructField, ft reflect
 	return fieldBeanName
 }
 
-// isBean 判断是否能够作为 bean，基本数据类型等不能作为一个 bean
-func isBean(t reflect.Type) bool {
-	if t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-	// reflect.Interface 是 reflect.TypeOf(&i).Elem().Kind() 指针传入然后调用 Elem() 返回的类型，因为 reflect 没有具体确定它的类型
-	// 这里判断有点问题，因为 var i int 传入 &i 那么这里得到的也是 Interface，无法做更加具体的区分
-	if t.Kind() == reflect.Struct || t.Kind() == reflect.Interface {
-		return true
-	}
-	return false
-}
-
-// addSingleton 添加单例 bean
-func (bc *BeanBeanFactory) addSingleton(beanName string, i interface{}) {
-	bc.earlyMap[beanName] = nil
-	bc.singletonMap[beanName] = i
-}
-
-// getBeanType 根据 beanName 获取 bean 类型
-func (bc *BeanBeanFactory) getBeanType(beanName string) BeanType {
-	beanType, exist := bc.btMap[beanName]
-	if !exist {
-		return Invalid
-	}
-	return beanType
-}
-
-// getBeanNameWithReflectType 根据 reflect.Type 从已经注册的 bean 中获取对应的 beanName
-func (bc *BeanBeanFactory) getBeanNameWithReflectType(tape reflect.Type) string {
-	// 这里操作次数并不多，因此不需要特地维护一个 map，直接从原有 map 扫描获取即可，单纯的时间换空间
-	for beanName, t := range bc.tMap {
-		if t == tape {
-			return beanName
-		}
-	}
-	return ""
-}
-
-// getBeanName 获取 field 注解的 beanName，作为 IOC 容器中唯一 bean 标识
-func getBeanName(field reflect.StructField) string {
-	return field.Tag.Get(BeanNameTag)
-}
-
-// getAutowireType 获取变量注入类型
-func getAutowireType(field reflect.StructField) BeanType {
+// getFieldBeanType 获取变量注入类型
+func getFieldBeanType(field reflect.StructField) BeanType {
 	autowireTag := field.Tag.Get(AutowiredTag)
 	if isSingleton(BeanType(autowireTag)) {
 		return Singleton
@@ -308,12 +359,6 @@ func getAutowireType(field reflect.StructField) BeanType {
 		return Prototype
 	}
 	return Invalid
-}
-
-// isRegistered 判断 beanName 是否已经注册
-func (bc *BeanBeanFactory) isRegistered(beanName string) bool {
-	_, exist := bc.tMap[beanName]
-	return exist
 }
 
 // Option
