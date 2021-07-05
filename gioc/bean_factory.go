@@ -61,11 +61,12 @@ func NewBeanFactory(opts ...Option) BeanFactory {
 		btMap:        map[string]BeanType{},
 		tMap:         map[string]reflect.Type{},
 		singletonMap: map[string]interface{}{},
+		earlyMap:     map[string]interface{}{},
+		opts:         &Options{},
 	}
 	bc.sc = NewSingletonContainer(bc)
 	bc.pc = NewPrototypeContainer(bc)
 	if len(opts) > 0 {
-		bc.opts = &Options{}
 		for _, opt := range opts {
 			opt(bc.opts)
 		}
@@ -135,6 +136,13 @@ func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
 	// 非 ptr bean value
 	bean := beanPtr.Elem()
 
+	if t == tPtr {
+		// 非 ptr bean
+		bc.earlyMap[beanName] = bean.Interface()
+	} else {
+		// ptr bean
+		bc.earlyMap[beanName] = beanPtr.Interface()
+	}
 	// 扫描所有的 field
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
@@ -153,7 +161,7 @@ func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
 		}
 		// 获取注入类型
 		autowireType := getAutowireType(field)
-		// 不存在 autowire 注解，那么当前 field 不需要注入，那么跳过
+		// 不存在 autowire 注解，那么当前 field 不需要注入，那么跳过2
 		if autowireType == Invalid {
 			continue
 		}
@@ -201,11 +209,14 @@ func isPrototype(beanType BeanType) bool {
 
 // getSingleton 获取单例 bean（这里以后学习 Spring 建立三级缓存解决循环依赖）
 func (bc *BeanBeanFactory) getSingleton(beanName string) interface{} {
-	bean, exist := bc.singletonMap[beanName]
-	if exist {
-		return bean
+	// 从单例池中获取
+	bean := bc.singletonMap[beanName]
+	// 单例池不存在 bean 并且允许循环依赖
+	if bean == nil && bc.opts.allowEarlyReference {
+		// 从早期暴露对象池中获取 bean
+		bean = bc.earlyMap[beanName]
 	}
-	return nil
+	return bean
 }
 
 // getFieldBeanName 获取字段变量的 beanName
@@ -239,6 +250,7 @@ func isBean(t reflect.Type) bool {
 
 // addSingleton 添加单例 bean
 func (bc *BeanBeanFactory) addSingleton(beanName string, i interface{}) {
+	bc.earlyMap[beanName] = nil
 	bc.singletonMap[beanName] = i
 }
 
