@@ -51,6 +51,8 @@ type BeanBeanFactory struct {
 	singletonMap map[string]interface{}
 	// 维护早期暴露对象，用于解决循环依赖
 	earlyMap map[string]interface{}
+	// 当前正在创建的 bean 列表
+	creatingMap map[string]interface{}
 	// 可选参数
 	opts *Options
 }
@@ -62,6 +64,7 @@ func NewBeanFactory(opts ...Option) BeanFactory {
 		tMap:         map[string]reflect.Type{},
 		singletonMap: map[string]interface{}{},
 		earlyMap:     map[string]interface{}{},
+		creatingMap:  map[string]interface{}{},
 		opts:         &Options{},
 	}
 	bc.sc = NewSingletonContainer(bc)
@@ -99,6 +102,11 @@ func (bc *BeanBeanFactory) Register(class *Class) error {
 
 // GetBean 根据 beanName 获取 bean 实例
 func (bc *BeanBeanFactory) GetBean(beanName string) interface{} {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("bean：%v is creating\n", beanName)
+		}
+	}()
 	// 获取 bean 类型
 	beanType := bc.getBeanType(beanName)
 	// bean 不存在
@@ -116,6 +124,12 @@ func (bc *BeanBeanFactory) GetBean(beanName string) interface{} {
 
 // createBean 创建 bean 实例
 func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
+	// 判断当前 bean 是否正在创建
+	if _, exist := bc.creatingMap[beanName]; exist {
+		panic("cur bean is creating")
+	}
+	// 标识当前 bean 正在创建
+	bc.creatingMap[beanName] = struct{}{}
 	// 获取 bean 类型信息
 	tPtr, exist := bc.tMap[beanName]
 	if !exist {
@@ -136,13 +150,16 @@ func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
 	// 非 ptr bean value
 	bean := beanPtr.Elem()
 
-	if t == tPtr {
-		// 非 ptr bean
-		bc.earlyMap[beanName] = bean.Interface()
-	} else {
-		// ptr bean
-		bc.earlyMap[beanName] = beanPtr.Interface()
+	if bc.opts.allowEarlyReference {
+		if t == tPtr {
+			// 非 ptr bean
+			bc.earlyMap[beanName] = bean.Interface()
+		} else {
+			// ptr bean
+			bc.earlyMap[beanName] = beanPtr.Interface()
+		}
 	}
+
 	// 扫描所有的 field
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
@@ -189,6 +206,8 @@ func (bc *BeanBeanFactory) createBean(beanName string) interface{} {
 			bean.Field(i).Set(fieldBeanValue.Elem().Addr())
 		}
 	}
+	// 将当前 bean 从正在创建 bean 列表中移除
+	bc.creatingMap[beanName] = nil
 	// 返回非 ptr bean
 	if t == tPtr {
 		return bean.Interface()
