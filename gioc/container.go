@@ -13,7 +13,7 @@ type SingletonContainer struct {
 }
 
 // NewSingletonContainer 实例化一个单例 bean 容器
-func NewSingletonContainer(beanFactory BeanFactory) *SingletonContainer {
+func NewSingletonContainer(beanFactory BeanFactory) Container {
 	return &SingletonContainer{
 		BeanFactory: beanFactory,
 	}
@@ -43,7 +43,7 @@ type PrototypeContainer struct {
 }
 
 // NewPrototypeContainer 实例化一个原型 bean 容器
-func NewPrototypeContainer(beanFactory BeanFactory) *PrototypeContainer {
+func NewPrototypeContainer(beanFactory BeanFactory) Container {
 	return &PrototypeContainer{
 		BeanFactory: beanFactory,
 	}
@@ -51,11 +51,11 @@ func NewPrototypeContainer(beanFactory BeanFactory) *PrototypeContainer {
 
 // Get 获取 bean
 func (pc *PrototypeContainer) Get(beanName string) interface{} {
-	// 获取对应的数据类型
 	// 创建实例
 	bean := pc.createBean(beanName)
 	if bean == nil {
 		return nil
 	}
+	// 原型 bean 不需要添加到缓存中
 	return bean
 }
