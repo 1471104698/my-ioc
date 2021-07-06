@@ -38,3 +38,8 @@ func (ioc *IOC) Register(class *Class) error {
 func (ioc *IOC) GetBean(beanName string) interface{} {
 	return ioc.beanFactory.GetBean(beanName)
 }
+
+// GetBeanFactory
+func (ioc *IOC) GetBeanFactory() BeanFactory {
+	return ioc.beanFactory
+}

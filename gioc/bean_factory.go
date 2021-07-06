@@ -21,6 +21,8 @@ var (
 type BeanFactory interface {
 	// Register 注册一个 bean
 	Register(class *Class) error
+	// RegisterBeanProcessor 注册 bean 处理器
+	RegisterBeanProcessor(class *Class) error
 	// GetBean 根据 beanName 获取 bean
 	GetBean(beanName string) interface{}
 	// getSingleton 获取单例 bean（这里以后学习 Spring 建立三级缓存解决循环依赖）
@@ -55,6 +57,8 @@ type BeanBeanFactory struct {
 	factoryMap map[string]func() interface{}
 	// 当前正在创建的 bean 列表
 	creatingMap map[string]interface{}
+	// bean 处理器集合
+	beanProcessors []BeanProcessor
 	// 可选参数
 	opts *Options
 }
@@ -77,6 +81,8 @@ func NewBeanFactory(opts ...Option) BeanFactory {
 			opt(bc.opts)
 		}
 	}
+	bc.beanProcessors = append(bc.beanProcessors, NewAopBeanProcessor(bc))
+	bc.beanProcessors = append(bc.beanProcessors, NewPopulateBeanProcessor(bc))
 	return bc
 }
 
@@ -100,6 +106,25 @@ func (bc *BeanBeanFactory) Register(class *Class) error {
 	}
 	bc.btMap[beanName] = beanType
 	bc.tMap[beanName] = t
+	return nil
+}
+
+// RegisterBeanProcessor 注册 bean 处理器
+func (bc *BeanBeanFactory) RegisterBeanProcessor(class *Class) error {
+	class.beanType = Singleton
+	err := bc.Register(class)
+	if err != nil {
+		return err
+	}
+	bpBean := bc.GetBean(class.beanName)
+	bp, ok := bpBean.(BeanProcessor)
+	if !ok {
+		bc.tMap = nil
+		bc.singletonMap = nil
+		delete(bc.btMap, class.beanName)
+		return fmt.Errorf("bean %v is not a bean processor", class.beanName)
+	}
+	bc.beanProcessors = append(bc.beanProcessors, bp)
 	return nil
 }
 
@@ -162,52 +187,9 @@ func (bc *BeanBeanFactory) createBean(beanName string, beanType BeanType) interf
 			bc.addSingletonFactory(beanName, beanPtr.Interface())
 		}
 	}
-	// 扫描所有的 field
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		// field 的 reflect.Type 类型信息
-		ftPtr := field.Type
-		// field 的 非 ptr type
-		var ft reflect.Type
-		if ftPtr.Kind() == reflect.Ptr {
-			ft = ftPtr.Elem()
-		} else {
-			ft = ftPtr
-		}
-		// 非 bean，那么直接跳过
-		if !isBean(ft) {
-			continue
-		}
-		// 获取注入类型
-		fieldBeanType := getFieldBeanType(field)
-		// 不存在 autowire 注解，那么当前 field 不需要注入，那么跳过2
-		if fieldBeanType == Invalid {
-			continue
-		}
-		// 获取 field 对应注解的 beanName
-		fieldBeanName := getFieldBeanName(bc, field, ft)
-		// 判断是否需要注册到 beanFactory 中
-		if !bc.isRegistered(fieldBeanName) {
-			// 注册到 beanFactory 中
-			_ = bc.Register(NewClass(fieldBeanName, ftPtr, fieldBeanType))
-		}
-		// 调用 GetBean() 获取 field bean，走 container 的逻辑
-		fieldBean := bc.GetBean(fieldBeanName)
-		// 获取不到 bean，那么跳过
-		if fieldBean == nil {
-			continue
-		}
-		// 将 bean 封装为 reflect.Value，用于 set()
-		fieldBeanValue := reflect.ValueOf(fieldBean)
-		// 将 field bean 赋值给 bean
-		if ft == ftPtr {
-			// field 非 ptr，那么直接设置即可
-			bean.Field(i).Set(fieldBeanValue)
-		} else {
-			// field ptr，那么需要 fieldBean 是 ptr bean，这里需要先进行 Elem()，然后 Addr() 返回地址，赋值给 field
-			bean.Field(i).Set(fieldBeanValue.Elem().Addr())
-		}
-	}
+	// 属性注入bea
+	bc.populateBean(bean, t)
+
 	// 创建 bean 后置处理
 	bc.createAfter(beanName, beanType)
 
@@ -217,6 +199,13 @@ func (bc *BeanBeanFactory) createBean(beanName string, beanType BeanType) interf
 	}
 	// 返回 ptr bean
 	return beanPtr.Interface()
+}
+
+// populateBean 属性注入
+func (bc *BeanBeanFactory) populateBean(bean reflect.Value, t reflect.Type) {
+	for _, bp := range bc.beanProcessors {
+		bp.processPropertyValues(&bean, t)
+	}
 }
 
 // createBefore
@@ -304,6 +293,12 @@ func (bc *BeanBeanFactory) addSingleton(beanName string, bean interface{}) {
 func (bc *BeanBeanFactory) addSingletonFactory(beanName string, bean interface{}) {
 	// 设置工厂方法，这里主要是进行 AOP 处理
 	bc.factoryMap[beanName] = func() interface{} {
+		for _, bp := range bc.beanProcessors {
+			bean = bp.postProcessAfterInitialization(beanName, bean)
+			if bean != nil {
+				return bean
+			}
+		}
 		return bean
 	}
 }
