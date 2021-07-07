@@ -22,7 +22,7 @@ func NewSingletonContainer(beanFactory BeanFactory) Container {
 // Get 获取 bean
 func (sc *SingletonContainer) Get(beanName string) interface{} {
 	// 先从缓存中获取
-	bean := sc.getSingleton(beanName)
+	bean := sc.getSingleton(beanName, sc.isAllowEarlyReference())
 	if bean != nil {
 		return bean
 	}

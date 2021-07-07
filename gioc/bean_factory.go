@@ -26,11 +26,13 @@ type BeanFactory interface {
 	// GetBean 根据 beanName 获取 bean
 	GetBean(beanName string) interface{}
 	// getSingleton 获取单例 bean（这里以后学习 Spring 建立三级缓存解决循环依赖）
-	getSingleton(beanName string) interface{}
+	getSingleton(beanName string, allowEarlyReference bool) interface{}
 	// createBean 创建 bean 实例
 	createBean(beanName string, beanType BeanType) interface{}
 	// addSingleton 添加单例 bean
 	addSingleton(beanName string, i interface{})
+	// isAllowEarlyReference 是否允许循环依赖
+	isAllowEarlyReference() bool
 }
 
 // AutowiredTag 变量注入注解
@@ -38,6 +40,12 @@ const AutowiredTag = "di"
 
 // BeanNameTag 唯一标识 beanName 注解
 const BeanNameTag = "beanName"
+
+// initBeanProcessors 初始bean 处理器列表
+var initBeanProcessors = []func(*BeanBeanFactory) BeanProcessor{
+	NewPopulateBeanProcessor,
+	NewAopBeanProcessor,
+}
 
 // BeanBeanFactory bean 工厂实现
 type BeanBeanFactory struct {
@@ -81,8 +89,9 @@ func NewBeanFactory(opts ...Option) BeanFactory {
 			opt(bc.opts)
 		}
 	}
-	bc.beanProcessors = append(bc.beanProcessors, NewAopBeanProcessor(bc))
-	bc.beanProcessors = append(bc.beanProcessors, NewPopulateBeanProcessor(bc))
+	for _, bp := range initBeanProcessors {
+		bc.beanProcessors = append(bc.beanProcessors, bp(bc))
+	}
 	return bc
 }
 
@@ -131,11 +140,11 @@ func (bc *BeanBeanFactory) RegisterBeanProcessor(class *Class) error {
 // GetBean 根据 beanName 获取 bean 实例
 func (bc *BeanBeanFactory) GetBean(beanName string) interface{} {
 	// 处理 createBean 抛出的 panic
-	defer func() {
-		if err := recover(); err != nil {
-			fmt.Println(err)
-		}
-	}()
+	//defer func() {
+	//	if err := recover(); err != nil {
+	//		fmt.Println(err)
+	//	}
+	//}()
 	// 获取 bean 类型
 	beanType := bc.getBeanType(beanName)
 	// bean 不存在
@@ -157,10 +166,21 @@ func (bc *BeanBeanFactory) createBean(beanName string, beanType BeanType) interf
 	bc.createBefore(beanName, beanType)
 
 	// 获取 bean 类型信息
-	tPtr, exist := bc.tMap[beanName]
+	t, exist := bc.tMap[beanName]
 	if !exist {
 		return nil
 	}
+	// 初始化 bean 前看该 bean 是否存在特殊创建逻辑
+	bean := bc.resolveBeforeInstantiation(beanName, t)
+	if bean != nil {
+		return bean
+	}
+	// 创建 bean
+	return bc.doCreateBean(beanName, t)
+}
+
+// doCreateBean 真正的创建 bean 实例逻辑
+func (bc *BeanBeanFactory) doCreateBean(beanName string, tPtr reflect.Type) interface{} {
 	// 非 ptr type
 	var t reflect.Type
 	if tPtr.Kind() == reflect.Ptr {
@@ -181,31 +201,79 @@ func (bc *BeanBeanFactory) createBean(beanName string, beanType BeanType) interf
 	if bc.opts.allowEarlyReference {
 		if t == tPtr {
 			// 非 ptr bean
-			bc.addSingletonFactory(beanName, bean.Interface())
+			bc.addSingletonFactory(beanName, bean.Interface(), t)
 		} else {
 			// ptr bean
-			bc.addSingletonFactory(beanName, beanPtr.Interface())
+			bc.addSingletonFactory(beanName, beanPtr.Interface(), t)
 		}
 	}
-	// 属性注入bea
+	// 属性注入
 	bc.populateBean(bean, t)
 
-	// 创建 bean 后置处理
-	bc.createAfter(beanName, beanType)
+	// 初始化 bean，这里会执行 AOP 处理
+	// 注意这里需要传入 ptr bean，为了跟下面的 getSingleton 对齐
+	bean2 := bc.initializeBean(beanName, beanPtr.Interface(), t)
 
+	// 上面存在两种 bean，一种是原始的 bean1，一种是 initializeBean 初始化返回的 bean2
+	// 创建 A bean 的时候有以下几种情况：
+	// 	1、创建 A 的时候 A 作为早期对象暴露了，那么如果 A 依赖了 B，B 依赖了 A，那么 A 会被拿出放到 earlyMap 中
+	//	  如果 A 需要 AOP 的话，那么 AOP 对象就在 earlyMap 中，那么 initializeBean 返回的就是原始 bean
+	// 	2、创建 A 的时候 A 不作为早期对象暴露，或者没有构成循环依赖，那么 initializeBean 中返回的可能是 AOP bean
+	// 综上，我们实际上需要再获取 earlyMap 中的 bean3，bean2 和 bean3 之间具有以下关系：
+	// 	1、如果 A 没有暴露早期对象或者没有循环依赖，那么 bean2 就是最终需要返回的 bean
+	// 	2、如果 A 存在循环依赖，那么 bean3 就是最终需要返回的 bean
+	var resBean interface{}
+	// 允许循环依赖
+	if bc.isAllowEarlyReference() {
+		// 判断是否出现了循环依赖
+		// 这里的 resBean 就是上面讲的 bean3
+		resBean = bc.getSingleton(beanName, false)
+		// 为空，那么没有出现循环依赖，那么最终 bean 为 bean2
+		if resBean == nil {
+			resBean = bean2
+		}
+	} else {
+		// 不允许循环依赖，那么最终 bean2 为 bean2
+		resBean = bean2
+	}
 	// 返回非 ptr bean
 	if t == tPtr {
-		return bean.Interface()
+		// resBean 是 ptr，所以这里借助 reflect.Value 返回非 ptr
+		return reflect.ValueOf(resBean).Elem().Interface()
 	}
 	// 返回 ptr bean
-	return beanPtr.Interface()
+	return resBean
+}
+
+// resolveBeforeInstantiation 初始化 bean 前的处理
+func (bc *BeanBeanFactory) resolveBeforeInstantiation(beanName string, t reflect.Type) interface{} {
+	var bean interface{}
+	for _, bp := range bc.beanProcessors {
+		bean = bp.processBeforeInstantiation(beanName, t)
+		if bean != nil {
+			return bean
+		}
+	}
+	return nil
 }
 
 // populateBean 属性注入
 func (bc *BeanBeanFactory) populateBean(bean reflect.Value, t reflect.Type) {
 	for _, bp := range bc.beanProcessors {
-		bp.processPropertyValues(&bean, t)
+		bp.processPropertyValues(bean, t)
 	}
+}
+
+// initializeBean 创建完 bean 后初始化 bean
+func (bc *BeanBeanFactory) initializeBean(beanName string, bean interface{}, t reflect.Type) interface{} {
+	wrapBean := bean
+	for _, bp := range bc.beanProcessors {
+		bean = bp.processAfterInitialization(beanName, wrapBean, t)
+		if bean != nil {
+			return bean
+		}
+	}
+	return bean
 }
 
 // createBefore
@@ -262,14 +330,14 @@ func isBean(t reflect.Type) bool {
 }
 
 // getSingleton 获取单例 bean（这里以后学习 Spring 建立三级缓存解决循环依赖）
-func (bc *BeanBeanFactory) getSingleton(beanName string) interface{} {
+func (bc *BeanBeanFactory) getSingleton(beanName string, allowEarlyReference bool) interface{} {
 	// 从单例池中获取
 	bean := bc.singletonMap[beanName]
 	// 单例池不存在 bean 并且允许循环依赖
-	if bean == nil && bc.opts.allowEarlyReference {
+	if bean == nil {
 		// 从早期暴露对象池中获取 bean
 		bean = bc.earlyMap[beanName]
-		if bean == nil {
+		if bean == nil && allowEarlyReference {
 			// 从三级缓存中获取
 			singletonFactory := bc.factoryMap[beanName]
 			if singletonFactory != nil {
@@ -290,11 +358,13 @@ func (bc *BeanBeanFactory) addSingleton(beanName string, bean interface{}) {
 }
 
 // addSingletonFactory
-func (bc *BeanBeanFactory) addSingletonFactory(beanName string, bean interface{}) {
+func (bc *BeanBeanFactory) addSingletonFactory(beanName string, bean interface{}, t reflect.Type) {
 	// 设置工厂方法，这里主要是进行 AOP 处理
 	bc.factoryMap[beanName] = func() interface{} {
+		// 注意这里是闭包的，后面修改了 bean 所以这里需要对 bean 进行一份备份
+		wrapBean := bean
 		for _, bp := range bc.beanProcessors {
-			bean = bp.postProcessAfterInitialization(beanName, bean)
+			bean = bp.processAfterInitialization(beanName, wrapBean, t)
 			if bean != nil {
 				return bean
 			}
@@ -354,6 +424,11 @@ func getFieldBeanType(field reflect.StructField) BeanType {
 		return Prototype
 	}
 	return Invalid
+}
+
+// isAllowEarlyReference 是否允许循环依赖
+func (bc *BeanBeanFactory) isAllowEarlyReference() bool {
+	return bc.opts.allowEarlyReference
 }
 
 // Option

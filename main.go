@@ -6,8 +6,8 @@ import (
 )
 
 type A struct {
-	//B B `di:"s" beanName:"bbbb"`
-	B *B `di:"s" beanName:"bbbb"`
+	B B `di:"s" beanName:"bbbb"`
+	//B *B `di:"s" beanName:"bbbb"`
 }
 
 type B struct {

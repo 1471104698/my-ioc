@@ -1,11 +1,18 @@
 package gioc
 
-import "reflect"
+import (
+	"reflect"
+)
 
 // BeanProcessor bean 处理器（Spring BeanPostProcessor bean 后置处理器简化版）
 type BeanProcessor interface {
-	processPropertyValues(wrapBean *reflect.Value, t reflect.Type)
-	postProcessAfterInitialization(beanName string, bean interface{}) interface{}
+	// processPropertyValues 属性注入
+	processPropertyValues(wrapBean reflect.Value, t reflect.Type)
+	// processBeforeInstantiation bean 初始化前处理函数，用户可以在这里自定义 bean 的创建逻辑
+	// 如果返回 bean != nil，那么不会再执行 createBean
+	processBeforeInstantiation(beanName string, t reflect.Type) interface{}
+	// postProcessAfterInitialization bean 初始化后处理函数，也是 AOP 的处理逻辑
+	processAfterInitialization(beanName string, bean interface{}, t reflect.Type) interface{}
 }
 
 // PopulateBeanProcessor field 填充 bean 处理器
@@ -20,8 +27,8 @@ func NewPopulateBeanProcessor(bc *BeanBeanFactory) BeanProcessor {
 	}
 }
 
-// processPropertyValues
-func (bp *PopulateBeanProcessor) processPropertyValues(wrapBean *reflect.Value, t reflect.Type) {
+// processPropertyValues 属性注入
+func (bp *PopulateBeanProcessor) processPropertyValues(wrapBean reflect.Value, t reflect.Type) {
 	// 扫描所有的 field
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
@@ -70,8 +77,13 @@ func (bp *PopulateBeanProcessor) processPropertyValues(wrapBean *reflect.Value, 
 	}
 }
 
-// postProcessAfterInitialization
-func (bp *PopulateBeanProcessor) postProcessAfterInitialization(beanName string, bean interface{}) interface{} {
+// processBeforeInstantiation
+func (bp *PopulateBeanProcessor) processBeforeInstantiation(beanName string, t reflect.Type) interface{} {
+	return nil
+}
+
+// processAfterInitialization
+func (bp *PopulateBeanProcessor) processAfterInitialization(beanName string, bean interface{}, t reflect.Type) interface{} {
 	return nil
 }
 
@@ -91,11 +103,16 @@ func NewAopBeanProcessor(bc *BeanBeanFactory) BeanProcessor {
 }
 
 // processPropertyValues
-func (bp *AopBeanProcessor) processPropertyValues(wrapBean *reflect.Value, t reflect.Type) {
+func (bp *AopBeanProcessor) processPropertyValues(wrapBean reflect.Value, t reflect.Type) {
 }
 
-// postProcessAfterInitialization
-func (bp *AopBeanProcessor) postProcessAfterInitialization(beanName string, bean interface{}) interface{} {
+// processBeforeInstantiation
+func (bp *AopBeanProcessor) processBeforeInstantiation(beanName string, t reflect.Type) interface{} {
+	return nil
+}
+
+// processAfterInitialization
+func (bp *AopBeanProcessor) processAfterInitialization(beanName string, bean interface{}, t reflect.Type) interface{} {
 	// 作为早期对象的时候已经处理过了
 	if bp.earlyProxyReferences[beanName] != nil {
 		return bean
