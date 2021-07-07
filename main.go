@@ -6,8 +6,7 @@ import (
 )
 
 type A struct {
-	B B `di:"s" beanName:"bbbb"`
-	//B *B `di:"s" beanName:"bbbb"`
+	B *B `di:"s" beanName:"bbbb"`
 }
 
 type B struct {
@@ -35,7 +34,7 @@ func main() {
 	}
 	bean := ioc.GetBean("a").(*A)
 	fmt.Println(bean.B)
-	fmt.Println(*(bean.B.C))
+	fmt.Println(bean.B.C)
 	bean2 := ioc.GetBean("a").(*A)
 	fmt.Println(bean == bean2) // true
 

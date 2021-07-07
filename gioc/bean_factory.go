@@ -240,8 +240,13 @@ func (bc *BeanBeanFactory) doCreateBean(beanName string, tPtr reflect.Type) inte
 	}
 	// 返回非 ptr bean
 	if t == tPtr {
-		// resBean 是 ptr，所以这里借助 reflect.Value 返回非 ptr
-		return reflect.ValueOf(resBean).Elem().Interface()
+		// 如果 resBean 是 ptr，所以这里借助 reflect.Value 返回非 ptr
+		resBeanV := reflect.ValueOf(resBean)
+		if resBeanV.Kind() == reflect.Ptr {
+			return resBeanV.Elem().Interface()
+		} else {
+			return resBean
+		}
 	}
 	// 返回 ptr bean
 	return resBean
