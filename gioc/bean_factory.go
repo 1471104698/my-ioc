@@ -35,11 +35,8 @@ type BeanFactory interface {
 	isAllowEarlyReference() bool
 }
 
-// AutowiredTag 变量注入注解
-const AutowiredTag = "di"
-
-// BeanNameTag 唯一标识 beanName 注解
-const BeanNameTag = "beanName"
+// DITag 变量注入注解
+const DITag = "di"
 
 // initBeanProcessors 初始bean 处理器列表
 var initBeanProcessors = []func(*BeanBeanFactory) BeanProcessor{
@@ -116,6 +113,10 @@ func (bc *BeanBeanFactory) Register(class *Class) error {
 	bc.btMap[beanName] = beanType
 	bc.tMap[beanName] = t
 	return nil
+}
+
+func (bc *BeanBeanFactory) RegisterBeanFunc() {
+
 }
 
 // RegisterBeanProcessor 注册 bean 处理器
@@ -389,41 +390,22 @@ func (bc *BeanBeanFactory) getBeanType(beanName string) BeanType {
 	return beanType
 }
 
-// getBeanName 获取 field 注解的 beanName，作为 IOC 容器中唯一 bean 标识
-func getBeanName(field reflect.StructField) string {
-	return field.Tag.Get(BeanNameTag)
-}
-
 // getBeanNameWithReflectType 根据 reflect.Type 从已经注册的 bean 中获取对应的 beanName
-func (bc *BeanBeanFactory) getBeanNameWithReflectType(tape reflect.Type) string {
+func (bc *BeanBeanFactory) getBeanNameWithReflectType(types []reflect.Type) string {
 	// 这里操作次数并不多，因此不需要特地维护一个 map，直接从原有 map 扫描获取即可，单纯的时间换空间
 	for beanName, t := range bc.tMap {
-		if t == tape {
-			return beanName
+		for _, ft := range types {
+			if t == ft {
+				return beanName
+			}
 		}
 	}
 	return ""
 }
 
-// getFieldBeanName 获取字段变量的 beanName
-func getFieldBeanName(bc *BeanBeanFactory, field reflect.StructField, ft reflect.Type) string {
-	// 从 Tag 中尝试获取 beanName
-	fieldBeanName := getBeanName(field)
-	// 如果 field 没有对应的 beanName 注解，那么从注册的 bean 中找到相同类型的 bean 选择一个注入
-	if fieldBeanName == "" {
-		// 从已经注册的 bean 中尝试获取相同数据类型的 beanName
-		fieldBeanName = bc.getBeanNameWithReflectType(ft)
-		// 已注册的 bean 中不存在当前 field 类型，那么使用 ft.Name() 作为 beanName
-		if fieldBeanName == "" {
-			fieldBeanName = ft.Name()
-		}
-	}
-	return fieldBeanName
-}
-
 // getFieldBeanType 获取变量注入类型
 func getFieldBeanType(field reflect.StructField) BeanType {
-	autowireTag := field.Tag.Get(AutowiredTag)
+	autowireTag := field.Tag.Get(DITag)
 	if isSingleton(BeanType(autowireTag)) {
 		return Singleton
 	}
@@ -431,6 +413,11 @@ func getFieldBeanType(field reflect.StructField) BeanType {
 		return Prototype
 	}
 	return Invalid
+}
+
+// hasAndGetDI 判断是否存在 DI 注解，同时获取 DI 注解的值
+func hasAndGetDI(field reflect.StructField) (string, bool) {
+	return field.Tag.Lookup(DITag)
 }
 
 // isAllowEarlyReference 是否允许循环依赖

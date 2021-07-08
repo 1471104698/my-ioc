@@ -6,21 +6,21 @@ import (
 )
 
 type A struct {
-	B *B `di:"s" beanName:"bbbb"`
+	B *B `di:""`
 }
 
 type B struct {
 	name string
 	age  int
-	C    *C `di:"p"`
-	A    *A `beanName:"a" di:"s"`
+	C    *C `di:"c"`
+	A    *A `di:"a"`
 }
 
 type C struct {
 	i    int
 	b    bool
 	name string
-	A    *A `beanName:"a" di:"s"`
+	A    *A `di:"a"`
 }
 
 func main() {
@@ -31,14 +31,13 @@ func main() {
 	ioc := gioc.NewIOC(opts...)
 
 	// 这里在 Spring 中应该是由 Spring 扫描类路径然后获取 @Component 或者 @Import 注解的类的信息然后再注册的，我这里省去了扫描的过程，直接构建注册
-	class := gioc.NewClass("a", (*A)(nil), gioc.Singleton)
-	err := ioc.Register(class)
-	if err != nil {
-		fmt.Println(err)
-	}
+	classA := gioc.NewClass("a", (*A)(nil), gioc.Singleton)
+	classB := gioc.NewClass("bbbb", (*B)(nil), gioc.Singleton)
+	classC := gioc.NewClass("c", (*C)(nil), gioc.Singleton)
+	_ = ioc.Register(classA)
+	_ = ioc.Register(classB)
+	_ = ioc.Register(classC)
 	bean := ioc.GetBean("a").(*A)
-	fmt.Println(bean.B)
-	fmt.Println(bean.B.C)
 	bean2 := ioc.GetBean("a").(*A)
 	fmt.Println(bean == bean2) // true
 
