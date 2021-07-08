@@ -24,7 +24,11 @@ type C struct {
 }
 
 func main() {
-	ioc := gioc.NewIOC(gioc.WithAllowEarlyReference(true))
+	opts := []gioc.Option{
+		gioc.WithAllowEarlyReference(true),
+		gioc.WithAllowPopulateStructBean(true),
+	}
+	ioc := gioc.NewIOC(opts...)
 
 	// 这里在 Spring 中应该是由 Spring 扫描类路径然后获取 @Component 或者 @Import 注解的类的信息然后再注册的，我这里省去了扫描的过程，直接构建注册
 	class := gioc.NewClass("a", (*A)(nil), gioc.Singleton)

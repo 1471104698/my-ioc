@@ -39,6 +39,10 @@ func (bp *PopulateBeanProcessor) processPropertyValues(wrapBean reflect.Value, t
 		if ftPtr.Kind() == reflect.Ptr {
 			ft = ftPtr.Elem()
 		} else {
+			// 不允许非 ptr 结构体注入
+			if !bp.bc.isAllowPopulateStructBean() {
+				continue
+			}
 			ft = ftPtr
 		}
 		// 非 wrapBean，那么直接跳过

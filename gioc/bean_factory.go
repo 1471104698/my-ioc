@@ -438,6 +438,11 @@ func (bc *BeanBeanFactory) isAllowEarlyReference() bool {
 	return bc.opts.allowEarlyReference
 }
 
+// isAllowPopulateStructBean 是否允许注入非 ptr bean
+func (bc *BeanBeanFactory) isAllowPopulateStructBean() bool {
+	return bc.opts.allowPopulateStructBean
+}
+
 // Option
 type Option func(*Options)
 
@@ -445,11 +450,20 @@ type Option func(*Options)
 type Options struct {
 	// 是否允许暴露早期对象
 	allowEarlyReference bool
+	// 是否允许注入非 ptr bean
+	allowPopulateStructBean bool
 }
 
 // WithAllowEarlyReference
 func WithAllowEarlyReference(allowEarlyReference bool) Option {
 	return func(opts *Options) {
 		opts.allowEarlyReference = allowEarlyReference
+	}
+}
+
+// WithAllowPopulateStructBean
+func WithAllowPopulateStructBean(allowPopulateStructBean bool) Option {
+	return func(opts *Options) {
+		opts.allowPopulateStructBean = allowPopulateStructBean
 	}
 }
