@@ -61,7 +61,6 @@ func (bp *PopulateBeanProcessor) processPropertyValues(wrapBean reflect.Value, t
 		// 如果是 struct bean，那么不使用旧的 bean，直接获取一个新的 bean，因为即使使用
 		if isStructBean(ftPtr, ft) {
 			fieldBean = bp.bc.GetNewBean(fieldBeanName)
-
 		} else {
 			fieldBean = bp.bc.GetBean(fieldBeanName)
 		}

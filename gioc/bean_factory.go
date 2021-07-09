@@ -176,7 +176,7 @@ func (bc *BeanBeanFactory) doGetBean(beanName string, new bool) interface{} {
 
 // createBean 创建 bean 实例
 func (bc *BeanBeanFactory) createBean(beanName string, beanType BeanType, new bool) interface{} {
-	if new {
+	if !new {
 		// bean 创建的前置处理
 		bc.createBefore(beanName, beanType)
 		// bean 创建完毕的后置处理
