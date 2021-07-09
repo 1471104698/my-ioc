@@ -28,7 +28,7 @@ type BeanFactory interface {
 	// getSingleton 获取单例 bean（这里以后学习 Spring 建立三级缓存解决循环依赖）
 	getSingleton(beanName string, allowEarlyReference bool) interface{}
 	// createBean 创建 bean 实例
-	createBean(beanName string, beanType BeanType) interface{}
+	createBean(beanName string, beanType BeanType, new bool) interface{}
 	// addSingleton 添加单例 bean
 	addSingleton(beanName string, i interface{})
 	// isAllowEarlyReference 是否允许循环依赖
@@ -139,12 +139,25 @@ func (bc *BeanBeanFactory) RegisterBeanProcessor(class *Class) error {
 
 // GetBean 根据 beanName 获取 bean 实例
 func (bc *BeanBeanFactory) GetBean(beanName string) interface{} {
+	// 获取 bean 类型
+	return bc.doGetBean(beanName, false)
+}
+
+// GetNewBean 根据 beanName 获取 bean 实例
+func (bc *BeanBeanFactory) GetNewBean(beanName string) interface{} {
+	// 获取 bean 类型
+	return bc.doGetBean(beanName, true)
+}
+
+// GetBean 根据 beanName 获取 bean 实例
+func (bc *BeanBeanFactory) doGetBean(beanName string, new bool) interface{} {
 	// 处理 createBean 抛出的 panic
-	//defer func() {
-	//	if err := recover(); err != nil {
-	//		fmt.Println(err)
-	//	}
-	//}()
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println(err)
+			panic(err)
+		}
+	}()
 	// 获取 bean 类型
 	beanType := bc.getBeanType(beanName)
 	// bean 不存在
@@ -153,20 +166,21 @@ func (bc *BeanBeanFactory) GetBean(beanName string) interface{} {
 	}
 	var bean interface{}
 	if isSingleton(beanType) {
-		bean = bc.sc.Get(beanName)
+		bean = bc.sc.Get(beanName, new)
 	} else {
-		bean = bc.pc.Get(beanName)
+		bean = bc.pc.Get(beanName, new)
 	}
 	return bean
 }
 
 // createBean 创建 bean 实例
-func (bc *BeanBeanFactory) createBean(beanName string, beanType BeanType) interface{} {
-	// bean 创建的前置处理
-	bc.createBefore(beanName, beanType)
-	// bean 创建完毕的后置处理
-	defer bc.createAfter(beanName, beanType)
-
+func (bc *BeanBeanFactory) createBean(beanName string, beanType BeanType, new bool) interface{} {
+	if !new {
+		// bean 创建的前置处理
+		bc.createBefore(beanName, beanType)
+		// bean 创建完毕的后置处理
+		defer bc.createAfter(beanName, beanType)
+	}
 	// 获取 bean 类型信息
 	t, exist := bc.tMap[beanName]
 	if !exist {

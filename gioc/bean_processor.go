@@ -62,8 +62,14 @@ func (bp *PopulateBeanProcessor) processPropertyValues(wrapBean reflect.Value, t
 			// 注册到 beanFactory 中
 			_ = bp.bc.Register(NewClass(fieldBeanName, ftPtr, fieldBeanType))
 		}
+		var fieldBean interface{}
+		if isStructBean(ftPtr, ft) {
+			fieldBean = bp.bc.GetNewBean(fieldBeanName)
+
+		} else {
+			fieldBean = bp.bc.GetBean(fieldBeanName)
+		}
 		// 调用 GetBean() 获取 field wrapBean，走 container 的逻辑
-		fieldBean := bp.bc.GetBean(fieldBeanName)
 		// 获取不到 wrapBean，那么跳过
 		if fieldBean == nil {
 			continue
@@ -74,7 +80,7 @@ func (bp *PopulateBeanProcessor) processPropertyValues(wrapBean reflect.Value, t
 			fieldBeanValue = fieldBeanValue.Elem()
 		}
 		// 将 field wrapBean 赋值给 wrapBean
-		if ft == ftPtr {
+		if isStructBean(ftPtr, ft) {
 			// field 非 ptr，那么直接设置即可
 			wrapBean.Field(i).Set(fieldBeanValue)
 		} else {
@@ -82,6 +88,11 @@ func (bp *PopulateBeanProcessor) processPropertyValues(wrapBean reflect.Value, t
 			wrapBean.Field(i).Set(fieldBeanValue.Addr())
 		}
 	}
+}
+
+// isStructBean 判断是否是 struct bean（非 ptr）
+func isStructBean(ftPtr, ft reflect.Type) bool {
+	return ftPtr == ft
 }
 
 // processBeforeInstantiation

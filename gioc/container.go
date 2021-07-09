@@ -3,7 +3,7 @@ package gioc
 // Container bean 容器接口
 type Container interface {
 	// Get 根据 beanName 获取 bean
-	Get(beanName string) interface{}
+	Get(beanName string, new bool) interface{}
 }
 
 // SingletonContainer 单例 bean 容器
@@ -20,19 +20,24 @@ func NewSingletonContainer(beanFactory BeanFactory) Container {
 }
 
 // Get 获取 bean
-func (sc *SingletonContainer) Get(beanName string) interface{} {
-	// 先从缓存中获取
-	bean := sc.getSingleton(beanName, sc.isAllowEarlyReference())
-	if bean != nil {
-		return bean
+func (sc *SingletonContainer) Get(beanName string, new bool) interface{} {
+	var bean interface{}
+	if !new {
+		// 先从缓存中获取
+		bean = sc.getSingleton(beanName, sc.isAllowEarlyReference())
+		if bean != nil {
+			return bean
+		}
 	}
 	// 创建实例
-	bean = sc.createBean(beanName, Singleton)
+	bean = sc.createBean(beanName, Singleton, new)
 	if bean == nil {
 		return nil
 	}
-	// 将 bean 添加到缓存中
-	sc.addSingleton(beanName, bean)
+	if !new {
+		// 将 bean 添加到缓存中
+		sc.addSingleton(beanName, bean)
+	}
 	return bean
 }
 
@@ -50,9 +55,9 @@ func NewPrototypeContainer(beanFactory BeanFactory) Container {
 }
 
 // Get 获取 bean
-func (pc *PrototypeContainer) Get(beanName string) interface{} {
+func (pc *PrototypeContainer) Get(beanName string, new bool) interface{} {
 	// 创建实例
-	bean := pc.createBean(beanName, Prototype)
+	bean := pc.createBean(beanName, Prototype, new)
 	if bean == nil {
 		return nil
 	}
