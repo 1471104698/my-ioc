@@ -68,15 +68,18 @@ func (bp *PopulateBeanProcessor) processPropertyValues(wrapBean reflect.Value, t
 		if fieldBean == nil {
 			continue
 		}
-		// 将 wrapBean 封装为 reflect.Value，用于 set()
+		// 将 wrapBean 封装为 reflect.Value，用于 set
 		fieldBeanValue := reflect.ValueOf(fieldBean)
+		if fieldBeanValue.Kind() == reflect.Ptr {
+			fieldBeanValue = fieldBeanValue.Elem()
+		}
 		// 将 field wrapBean 赋值给 wrapBean
 		if ft == ftPtr {
 			// field 非 ptr，那么直接设置即可
 			wrapBean.Field(i).Set(fieldBeanValue)
 		} else {
 			// field ptr，那么需要 fieldBean 是 ptr wrapBean，这里需要先进行 Elem()，然后 Addr() 返回地址，赋值给 field
-			wrapBean.Field(i).Set(fieldBeanValue.Elem().Addr())
+			wrapBean.Field(i).Set(fieldBeanValue.Addr())
 		}
 	}
 }
