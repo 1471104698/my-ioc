@@ -20,7 +20,7 @@ type C struct {
 	i    int
 	b    bool
 	name string
-	A    *A `di:"a"`
+	A    A `di:"a"`
 }
 
 func main() {

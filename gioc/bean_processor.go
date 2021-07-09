@@ -57,21 +57,33 @@ func (bp *PopulateBeanProcessor) processPropertyValues(wrapBean reflect.Value, t
 			panic(fmt.Errorf("field bean %v is not exist", field.Name))
 		}
 		// 调用 GetBean() 获取 field bean，走 container 的逻辑
-		fieldBean := bp.bc.GetBean(fieldBeanName)
-		// 将 wrapBean 封装为 reflect.Value，用于 set
+		var fieldBean interface{}
+		// 如果是 struct bean，那么不使用旧的 bean，直接获取一个新的 bean，因为即使使用
+		if isStructBean(ftPtr, ft) {
+			fieldBean = bp.bc.GetNewBean(fieldBeanName)
+
+		} else {
+			fieldBean = bp.bc.GetBean(fieldBeanName)
+		}
+		// 将 field bean 封装为 reflect.Value，用于 set
 		fieldBeanValue := reflect.ValueOf(fieldBean)
 		if fieldBeanValue.Kind() == reflect.Ptr {
 			fieldBeanValue = fieldBeanValue.Elem()
 		}
-		// 将 field wrapBean 赋值给 wrapBean
-		if ft == ftPtr {
+		// 将 field bean 赋值给 wrapBean
+		if isStructBean(ftPtr, ft) {
 			// field 非 ptr，那么直接设置即可
 			wrapBean.Field(i).Set(fieldBeanValue)
 		} else {
-			// field ptr，那么需要 fieldBean 是 ptr wrapBean，这里需要先进行 Elem()，然后 Addr() 返回地址，赋值给 field
+			// field ptr，那么需要 fieldBean 是 ptr bean，这里需要先进行 Elem()，然后 Addr() 返回地址，赋值给 field
 			wrapBean.Field(i).Set(fieldBeanValue.Addr())
 		}
 	}
+}
+
+// isStructBean 判断是否是 struct bean（非 ptr）
+func isStructBean(ftPtr, ft reflect.Type) bool {
+	return ftPtr == ft
 }
 
 // getFieldBeanName 获取字段变量的 beanName
